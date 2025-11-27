@@ -3,8 +3,7 @@ import { Asterisk, MoreHorizontal, Menu, ChevronDown } from "lucide-react"
 import { useState } from "react"
 import GhostIconButton from "./GhostIconButton"
 
-export default function Header({ createNewChat, sidebarCollapsed, setSidebarOpen }) {
-  const [selectedBot, setSelectedBot] = useState("GPT-5")
+export default function Header({ createNewChat, sidebarCollapsed, setSidebarOpen, selectedModel, setSelectedModel }) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false)
 
   const chatbots = [
@@ -31,12 +30,12 @@ export default function Header({ createNewChat, sidebarCollapsed, setSidebarOpen
           onClick={() => setIsDropdownOpen(!isDropdownOpen)}
           className="inline-flex items-center gap-2 rounded-full border border-zinc-200 bg-white px-3 py-2 text-sm font-semibold tracking-tight hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:border-zinc-800 dark:bg-zinc-950 dark:hover:bg-zinc-800"
         >
-          {typeof chatbots.find((bot) => bot.name === selectedBot)?.icon === "string" ? (
-            <span className="text-sm">{chatbots.find((bot) => bot.name === selectedBot)?.icon}</span>
+          {typeof chatbots.find((bot) => bot.name === selectedModel)?.icon === "string" ? (
+            <span className="text-sm">{chatbots.find((bot) => bot.name === selectedModel)?.icon}</span>
           ) : (
-            chatbots.find((bot) => bot.name === selectedBot)?.icon
+            chatbots.find((bot) => bot.name === selectedModel)?.icon
           )}
-          {selectedBot}
+          {selectedModel}
           <ChevronDown className="h-4 w-4" />
         </button>
 
@@ -46,7 +45,7 @@ export default function Header({ createNewChat, sidebarCollapsed, setSidebarOpen
               <button
                 key={bot.name}
                 onClick={() => {
-                  setSelectedBot(bot.name)
+                  setSelectedModel(bot.name)
                   setIsDropdownOpen(false)
                 }}
                 className="w-full flex items-center gap-2 px-3 py-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 first:rounded-t-lg last:rounded-b-lg"

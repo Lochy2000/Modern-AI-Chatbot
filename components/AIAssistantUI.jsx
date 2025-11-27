@@ -1,6 +1,7 @@
 "use client"
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
+import { useSession } from "next-auth/react"
 import { Calendar, LayoutGrid, MoreHorizontal } from "lucide-react"
 import Sidebar from "./Sidebar"
 import Header from "./Header"
@@ -8,7 +9,33 @@ import ChatPane from "./ChatPane"
 import GhostIconButton from "./GhostIconButton"
 import ThemeToggle from "./ThemeToggle"
 
+// Helper to generate title from first user message (first ~25-30 chars, cut at word boundary)
+function generateTitleFromMessage(message) {
+  if (!message || typeof message !== "string") return "New Chat"
+
+  // Clean up the message
+  const cleaned = message.trim().replace(/\s+/g, " ")
+  if (!cleaned) return "New Chat"
+
+  // If message is short enough, use it directly
+  if (cleaned.length <= 30) {
+    return cleaned
+  }
+
+  // Find the last space before the 30 char limit to cut at word boundary
+  const truncated = cleaned.slice(0, 30)
+  const lastSpace = truncated.lastIndexOf(" ")
+
+  if (lastSpace > 10) {
+    return truncated.slice(0, lastSpace) + "..."
+  }
+
+  // If no good word boundary, just truncate
+  return truncated + "..."
+}
+
 export default function AIAssistantUI() {
+  const { data: session } = useSession()
   const [theme, setTheme] = useState(() => {
     const saved = typeof window !== "undefined" && localStorage.getItem("theme")
     if (saved) return saved
@@ -82,6 +109,17 @@ export default function AIAssistantUI() {
 
   const [isThinking, setIsThinking] = useState(false)
   const [thinkingConvId, setThinkingConvId] = useState(null)
+
+  // Model selection state (lifted from Header)
+  const [selectedModel, setSelectedModel] = useState("GPT-5")
+
+  // Map UI model names to OpenRouter model IDs
+  const MODEL_MAP = {
+    "GPT-5": "openai/gpt-4o",
+    "Claude Sonnet 4": "anthropic/claude-sonnet-4-20250514",
+    "Gemini": "google/gemini-2.0-flash-001",
+    "Assistant": "openai/gpt-4o-mini",
+  }
 
   useEffect(() => {
     const onKey = (e) => {
@@ -226,6 +264,33 @@ export default function AIAssistantUI() {
     }
   }
 
+  async function moveToFolder(conversationId, folderId) {
+    // Optimistic update
+    setConversations((prev) =>
+      prev.map((c) => (c.id === conversationId ? { ...c, folderId } : c))
+    )
+
+    try {
+      const response = await fetch(`/api/conversations/${conversationId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ folderId }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to move conversation")
+      }
+    } catch (error) {
+      console.error("Error moving conversation:", error)
+      // Revert on error - refetch to get actual state
+      const res = await fetch("/api/conversations")
+      if (res.ok) {
+        const convs = await res.json()
+        setConversations(convs)
+      }
+    }
+  }
+
   async function sendMessage(convId, content) {
     if (!content.trim()) return
 
@@ -277,7 +342,7 @@ export default function AIAssistantUI() {
       const response = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: allMessages }),
+        body: JSON.stringify({ messages: allMessages, model: MODEL_MAP[selectedModel] }),
       })
 
       if (!response.ok) {
@@ -289,7 +354,7 @@ export default function AIAssistantUI() {
       let assistantContent = ""
       const assistantMsgId = Math.random().toString(36).slice(2)
 
-      // Initialize assistant message
+      // Initialize assistant message with model info
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id !== convId) return c
@@ -298,6 +363,7 @@ export default function AIAssistantUI() {
             role: "assistant",
             content: "",
             timestamp: new Date().toISOString(),
+            model: selectedModel,
           }
           return {
             ...c,
@@ -358,6 +424,24 @@ export default function AIAssistantUI() {
           content: assistantContent,
         }),
       })
+
+      // Auto-generate title if this is the first exchange (title is still "New Chat")
+      const currentConv = conversations.find((c) => c.id === convId)
+      if (currentConv?.title === "New Chat" && content) {
+        const newTitle = generateTitleFromMessage(content)
+        if (newTitle !== "New Chat") {
+          // Update title in state
+          setConversations((prev) =>
+            prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
+          )
+          // Update title in database
+          fetch(`/api/conversations/${convId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: newTitle }),
+          }).catch((err) => console.error("Error updating title:", err))
+        }
+      }
     } catch (error) {
       console.error("Error sending message:", error)
       setIsThinking(false)
@@ -469,10 +553,12 @@ export default function AIAssistantUI() {
           templates={templates}
           setTemplates={setTemplates}
           onUseTemplate={handleUseTemplate}
+          user={session?.user}
+          onMoveToFolder={moveToFolder}
         />
 
         <main className="relative flex min-w-0 flex-1 flex-col">
-          <Header createNewChat={createNewChat} sidebarCollapsed={sidebarCollapsed} setSidebarOpen={setSidebarOpen} />
+          <Header createNewChat={createNewChat} sidebarCollapsed={sidebarCollapsed} setSidebarOpen={setSidebarOpen} selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
           <ChatPane
             ref={composerRef}
             conversation={selected}

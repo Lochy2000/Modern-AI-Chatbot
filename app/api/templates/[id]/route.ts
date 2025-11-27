@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server"
 // PATCH update a template
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -14,8 +14,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { id: templateId } = await params
     const { name, content, snippet } = await req.json()
-    const templateId = params.id
 
     // Verify the template belongs to the user
     const existing = await prisma.template.findFirst({
@@ -54,7 +54,7 @@ export async function PATCH(
 // DELETE a template
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -63,7 +63,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const templateId = params.id
+    const { id: templateId } = await params
 
     // Verify the template belongs to the user
     const existing = await prisma.template.findFirst({

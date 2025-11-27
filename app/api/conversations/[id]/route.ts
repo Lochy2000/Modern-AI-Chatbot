@@ -5,7 +5,7 @@ import { NextRequest, NextResponse } from "next/server"
 // PATCH update a conversation
 export async function PATCH(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -14,8 +14,8 @@ export async function PATCH(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
+    const { id: conversationId } = await params
     const { title, pinned, folderId } = await req.json()
-    const conversationId = params.id
 
     // Verify the conversation belongs to the user
     const existing = await prisma.conversation.findFirst({
@@ -58,7 +58,7 @@ export async function PATCH(
 // DELETE a conversation
 export async function DELETE(
   req: NextRequest,
-  { params }: { params: { id: string } }
+  { params }: { params: Promise<{ id: string }> }
 ) {
   try {
     const session = await auth()
@@ -67,7 +67,7 @@ export async function DELETE(
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const conversationId = params.id
+    const { id: conversationId } = await params
 
     // Verify the conversation belongs to the user
     const existing = await prisma.conversation.findFirst({

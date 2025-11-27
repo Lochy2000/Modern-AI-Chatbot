@@ -1,15 +1,46 @@
-import React from "react";
-import { Star } from "lucide-react";
+import React, { useState, useRef, useEffect } from "react";
+import { Star, FolderIcon, ChevronRight, X } from "lucide-react";
 import { cls, timeAgo } from "./utils";
 
-export default function ConversationRow({ data, active, onSelect, onTogglePin, showMeta }) {
+export default function ConversationRow({ data, active, onSelect, onTogglePin, showMeta, folders = [], onMoveToFolder }) {
   const count = Array.isArray(data.messages) ? data.messages.length : data.messageCount;
+  const [showContextMenu, setShowContextMenu] = useState(false);
+  const [contextMenuPos, setContextMenuPos] = useState({ x: 0, y: 0 });
+  const [showFolderSubmenu, setShowFolderSubmenu] = useState(false);
+  const menuRef = useRef(null);
+
+  useEffect(() => {
+    const handleClickOutside = (e) => {
+      if (menuRef.current && !menuRef.current.contains(e.target)) {
+        setShowContextMenu(false);
+        setShowFolderSubmenu(false);
+      }
+    };
+    if (showContextMenu) {
+      document.addEventListener("mousedown", handleClickOutside);
+    }
+    return () => document.removeEventListener("mousedown", handleClickOutside);
+  }, [showContextMenu]);
+
+  const handleContextMenu = (e) => {
+    e.preventDefault();
+    setContextMenuPos({ x: e.clientX, y: e.clientY });
+    setShowContextMenu(true);
+  };
+
+  const handleMoveToFolder = (folderId) => {
+    onMoveToFolder?.(data.id, folderId);
+    setShowContextMenu(false);
+    setShowFolderSubmenu(false);
+  };
+
   return (
     <div className="group relative">
       <div
         role="button"
         tabIndex={0}
         onClick={onSelect}
+        onContextMenu={handleContextMenu}
         onKeyDown={(e) => {
           if (e.key === "Enter" || e.key === " ") {
             e.preventDefault();
@@ -57,6 +88,67 @@ export default function ConversationRow({ data, active, onSelect, onTogglePin, s
       <div className="pointer-events-none absolute left-[calc(100%+6px)] top-1 hidden w-64 rounded-xl border border-zinc-200 bg-white p-3 text-xs text-zinc-700 shadow-lg dark:border-zinc-800 dark:bg-zinc-900 dark:text-zinc-200 md:group-hover:block">
         <div className="line-clamp-6 whitespace-pre-wrap">{data.preview}</div>
       </div>
+
+      {/* Context Menu */}
+      {showContextMenu && (
+        <div
+          ref={menuRef}
+          className="fixed z-[200] min-w-[160px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900"
+          style={{ left: contextMenuPos.x, top: contextMenuPos.y }}
+        >
+          <button
+            onClick={() => {
+              onTogglePin();
+              setShowContextMenu(false);
+            }}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800"
+          >
+            <Star className="h-4 w-4" />
+            {data.pinned ? "Unpin" : "Pin"}
+          </button>
+          <div
+            className="relative"
+            onMouseEnter={() => setShowFolderSubmenu(true)}
+            onMouseLeave={() => setShowFolderSubmenu(false)}
+          >
+            <button className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800">
+              <FolderIcon className="h-4 w-4" />
+              Move to folder
+              <ChevronRight className="ml-auto h-4 w-4" />
+            </button>
+            {showFolderSubmenu && (
+              <div className="absolute left-full top-0 ml-1 min-w-[140px] rounded-lg border border-zinc-200 bg-white py-1 shadow-lg dark:border-zinc-800 dark:bg-zinc-900">
+                {data.folderId && (
+                  <button
+                    onClick={() => handleMoveToFolder(null)}
+                    className="flex w-full items-center gap-2 px-3 py-2 text-left text-sm text-red-600 hover:bg-zinc-100 dark:text-red-400 dark:hover:bg-zinc-800"
+                  >
+                    <X className="h-4 w-4" />
+                    Remove from folder
+                  </button>
+                )}
+                {folders.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-zinc-500">No folders yet</div>
+                ) : (
+                  folders.map((folder) => (
+                    <button
+                      key={folder.id}
+                      onClick={() => handleMoveToFolder(folder.id)}
+                      className={cls(
+                        "flex w-full items-center gap-2 px-3 py-2 text-left text-sm hover:bg-zinc-100 dark:hover:bg-zinc-800",
+                        data.folderId === folder.id && "bg-zinc-100 dark:bg-zinc-800"
+                      )}
+                    >
+                      <FolderIcon className="h-4 w-4" />
+                      {folder.name}
+                    </button>
+                  ))
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }

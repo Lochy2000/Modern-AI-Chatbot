@@ -42,7 +42,7 @@ export default function FolderRow({
   const handleRename = () => {
     const newName = prompt(`Rename folder "${name}" to:`, name)
     if (newName && newName.trim() && newName !== name) {
-      onRenameFolder?.(name, newName.trim())
+      onRenameFolder?.(newName.trim())
     }
     setShowMenu(false)
   }

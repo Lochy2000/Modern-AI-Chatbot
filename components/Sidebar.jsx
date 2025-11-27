@@ -49,7 +49,16 @@ export default function Sidebar({
   onUseTemplate = () => {},
   sidebarCollapsed = false,
   setSidebarCollapsed = () => {},
+  user = null,
+  onMoveToFolder = () => {},
 }) {
+  // Generate user initials from name
+  const getUserInitials = (name) => {
+    if (!name) return "?"
+    const parts = name.trim().split(" ")
+    if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+    return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
+  }
   const [showCreateFolderModal, setShowCreateFolderModal] = useState(false)
   const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false)
   const [editingTemplate, setEditingTemplate] = useState(null)
@@ -322,6 +331,8 @@ export default function Sidebar({
                       active={c.id === selectedId}
                       onSelect={() => onSelect(c.id)}
                       onTogglePin={() => togglePin(c.id)}
+                      folders={folders}
+                      onMoveToFolder={onMoveToFolder}
                     />
                   ))
                 )}
@@ -346,6 +357,8 @@ export default function Sidebar({
                       onSelect={() => onSelect(c.id)}
                       onTogglePin={() => togglePin(c.id)}
                       showMeta
+                      folders={folders}
+                      onMoveToFolder={onMoveToFolder}
                     />
                   ))
                 )}
@@ -418,7 +431,7 @@ export default function Sidebar({
 
             <div className="mt-auto border-t border-zinc-200/60 px-3 py-3 dark:border-zinc-800">
               <div className="flex items-center gap-2">
-                <SettingsPopover>
+                <SettingsPopover user={user}>
                   <button className="inline-flex items-center gap-2 rounded-lg px-2 py-2 text-sm hover:bg-zinc-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:hover:bg-zinc-800">
                     <Settings className="h-4 w-4" /> Settings
                   </button>
@@ -428,12 +441,20 @@ export default function Sidebar({
                 </div>
               </div>
               <div className="mt-2 flex items-center gap-2 rounded-xl bg-zinc-50 p-2 dark:bg-zinc-800/60">
-                <div className="grid h-8 w-8 place-items-center rounded-full bg-zinc-900 text-xs font-bold text-white dark:bg-white dark:text-zinc-900">
-                  JD
-                </div>
+                {user?.image ? (
+                  <img
+                    src={user.image}
+                    alt={user.name || "User"}
+                    className="h-8 w-8 rounded-full object-cover"
+                  />
+                ) : (
+                  <div className="grid h-8 w-8 place-items-center rounded-full bg-zinc-900 text-xs font-bold text-white dark:bg-white dark:text-zinc-900">
+                    {getUserInitials(user?.name)}
+                  </div>
+                )}
                 <div className="min-w-0">
-                  <div className="truncate text-sm font-medium">John Doe</div>
-                  <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">Pro workspace</div>
+                  <div className="truncate text-sm font-medium">{user?.name || "Guest"}</div>
+                  <div className="truncate text-xs text-zinc-500 dark:text-zinc-400">{user?.email || "Not signed in"}</div>
                 </div>
               </div>
             </div>
