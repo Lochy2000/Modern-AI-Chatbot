@@ -7,7 +7,6 @@ import Header from "./Header"
 import ChatPane from "./ChatPane"
 import GhostIconButton from "./GhostIconButton"
 import ThemeToggle from "./ThemeToggle"
-import { INITIAL_CONVERSATIONS, INITIAL_TEMPLATES, INITIAL_FOLDERS } from "./mockData"
 
 export default function AIAssistantUI() {
   const [theme, setTheme] = useState(() => {
@@ -71,10 +70,12 @@ export default function AIAssistantUI() {
     } catch {}
   }, [sidebarCollapsed])
 
-  const [conversations, setConversations] = useState(INITIAL_CONVERSATIONS)
+  const [conversations, setConversations] = useState([])
   const [selectedId, setSelectedId] = useState(null)
-  const [templates, setTemplates] = useState(INITIAL_TEMPLATES)
-  const [folders, setFolders] = useState(INITIAL_FOLDERS)
+  const [templates, setTemplates] = useState([])
+  const [folders, setFolders] = useState([])
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(null)
 
   const [query, setQuery] = useState("")
   const searchRef = useRef(null)
@@ -101,10 +102,49 @@ export default function AIAssistantUI() {
     return () => window.removeEventListener("keydown", onKey)
   }, [sidebarOpen, conversations])
 
+  // Fetch data from API on mount
   useEffect(() => {
-    if (!selectedId && conversations.length > 0) {
-      createNewChat()
+    async function fetchData() {
+      try {
+        setLoading(true)
+        setError(null)
+        const [conversationsRes, templatesRes, foldersRes] = await Promise.all([
+          fetch("/api/conversations"),
+          fetch("/api/templates"),
+          fetch("/api/folders"),
+        ])
+
+        if (conversationsRes.ok) {
+          const convs = await conversationsRes.json()
+          setConversations(convs)
+          // Auto-select first conversation, or create a new one if none exist
+          if (convs.length > 0) {
+            setSelectedId(convs[0].id)
+          } else {
+            await createNewChat()
+          }
+        } else {
+          setError("Failed to load conversations")
+        }
+
+        if (templatesRes.ok) {
+          const temps = await templatesRes.json()
+          setTemplates(temps)
+        }
+
+        if (foldersRes.ok) {
+          const folds = await foldersRes.json()
+          setFolders(folds)
+        }
+      } catch (err) {
+        console.error("Error fetching data:", err)
+        setError("Failed to connect to server. Please try again.")
+      } finally {
+        setLoading(false)
+      }
     }
+
+    fetchData()
   }, [])
 
   const filtered = useMemo(() => {
@@ -121,44 +161,83 @@ export default function AIAssistantUI() {
     .slice(0, 10)
 
   const folderCounts = React.useMemo(() => {
-    const map = Object.fromEntries(folders.map((f) => [f.name, 0]))
-    for (const c of conversations) if (map[c.folder] != null) map[c.folder] += 1
+    const map = Object.fromEntries(folders.map((f) => [f.id, 0]))
+    for (const c of conversations) if (c.folderId && map[c.folderId] != null) map[c.folderId] += 1
     return map
   }, [conversations, folders])
 
-  function togglePin(id) {
+  async function togglePin(id) {
+    const conv = conversations.find((c) => c.id === id)
+    if (!conv) return
+
+    // Optimistic update
     setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: !c.pinned } : c)))
-  }
 
-  function createNewChat() {
-    const id = Math.random().toString(36).slice(2)
-    const item = {
-      id,
-      title: "New Chat",
-      updatedAt: new Date().toISOString(),
-      messageCount: 0,
-      preview: "Say hello to start...",
-      pinned: false,
-      folder: "Work Projects",
-      messages: [], // Ensure messages array is empty for new chats
+    try {
+      await fetch(`/api/conversations/${id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ pinned: !conv.pinned }),
+      })
+    } catch (error) {
+      console.error("Error toggling pin:", error)
+      // Revert on error
+      setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: conv.pinned } : c)))
     }
-    setConversations((prev) => [item, ...prev])
-    setSelectedId(id)
-    setSidebarOpen(false)
   }
 
-  function createFolder() {
+  async function createNewChat() {
+    try {
+      const response = await fetch("/api/conversations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "New Chat" }),
+      })
+
+      if (response.ok) {
+        const newConversation = await response.json()
+        setConversations((prev) => [newConversation, ...prev])
+        setSelectedId(newConversation.id)
+        setSidebarOpen(false)
+      }
+    } catch (error) {
+      console.error("Error creating new chat:", error)
+    }
+  }
+
+  async function createFolder() {
     const name = prompt("Folder name")
     if (!name) return
     if (folders.some((f) => f.name.toLowerCase() === name.toLowerCase())) return alert("Folder already exists.")
-    setFolders((prev) => [...prev, { id: Math.random().toString(36).slice(2), name }])
+
+    try {
+      const response = await fetch("/api/folders", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name }),
+      })
+
+      if (response.ok) {
+        const newFolder = await response.json()
+        setFolders((prev) => [...prev, newFolder])
+      }
+    } catch (error) {
+      console.error("Error creating folder:", error)
+    }
   }
 
-  function sendMessage(convId, content) {
+  async function sendMessage(convId, content) {
     if (!content.trim()) return
-    const now = new Date().toISOString()
-    const userMsg = { id: Math.random().toString(36).slice(2), role: "user", content, createdAt: now }
 
+    const now = new Date().toISOString()
+    const userMsgId = Math.random().toString(36).slice(2)
+    const userMsg = { id: userMsgId, role: "user", content, timestamp: now }
+
+    // Get conversation messages BEFORE optimistic update for AI context
+    const conv = conversations.find((c) => c.id === convId)
+    const previousMessages = conv?.messages || []
+
+    // Optimistically add user message to UI
     setConversations((prev) =>
       prev.map((c) => {
         if (c.id !== convId) return c
@@ -176,32 +255,131 @@ export default function AIAssistantUI() {
     setIsThinking(true)
     setThinkingConvId(convId)
 
-    const currentConvId = convId
-    setTimeout(() => {
-      // Always clear thinking state and generate response for this specific conversation
-      setIsThinking(false)
-      setThinkingConvId(null)
+    try {
+      // Save user message to database
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          role: "user",
+          content,
+        }),
+      })
+
+      // Build messages for AI context (using messages from BEFORE optimistic update + new user message)
+      const allMessages = [...previousMessages, userMsg].map((m) => ({
+        role: m.role,
+        content: m.content,
+      }))
+
+      // Call AI API with streaming
+      const response = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: allMessages }),
+      })
+
+      if (!response.ok) {
+        throw new Error("Failed to get AI response")
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let assistantContent = ""
+      const assistantMsgId = Math.random().toString(36).slice(2)
+
+      // Initialize assistant message
       setConversations((prev) =>
         prev.map((c) => {
-          if (c.id !== currentConvId) return c
-          const ack = `Got it — I'll help with that.`
+          if (c.id !== convId) return c
           const asstMsg = {
-            id: Math.random().toString(36).slice(2),
+            id: assistantMsgId,
             role: "assistant",
-            content: ack,
-            createdAt: new Date().toISOString(),
+            content: "",
+            timestamp: new Date().toISOString(),
           }
-          const msgs = [...(c.messages || []), asstMsg]
           return {
             ...c,
-            messages: msgs,
-            updatedAt: new Date().toISOString(),
-            messageCount: msgs.length,
-            preview: asstMsg.content.slice(0, 80),
+            messages: [...(c.messages || []), asstMsg],
           }
         }),
       )
-    }, 2000)
+
+      setIsThinking(false)
+      setThinkingConvId(null)
+
+      // Stream the response
+      while (true) {
+        const { done, value } = await reader.read()
+        if (done) break
+
+        const chunk = decoder.decode(value)
+        const lines = chunk.split("\n")
+
+        for (const line of lines) {
+          if (line.startsWith("data: ")) {
+            const data = line.slice(6)
+            if (data === "[DONE]") continue
+
+            try {
+              const parsed = JSON.parse(data)
+              const delta = parsed.choices?.[0]?.delta?.content
+              if (delta) {
+                assistantContent += delta
+                // Update UI with streaming content
+                setConversations((prev) =>
+                  prev.map((c) => {
+                    if (c.id !== convId) return c
+                    return {
+                      ...c,
+                      messages: c.messages.map((m) =>
+                        m.id === assistantMsgId ? { ...m, content: assistantContent } : m
+                      ),
+                      preview: assistantContent.slice(0, 80),
+                    }
+                  }),
+                )
+              }
+            } catch (e) {
+              // Ignore JSON parse errors for incomplete chunks
+            }
+          }
+        }
+      }
+
+      // Save assistant message to database
+      await fetch("/api/messages", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          conversationId: convId,
+          role: "assistant",
+          content: assistantContent,
+        }),
+      })
+    } catch (error) {
+      console.error("Error sending message:", error)
+      setIsThinking(false)
+      setThinkingConvId(null)
+
+      // Add error message
+      const errorMsg = {
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: "Sorry, I encountered an error. Please try again.",
+        timestamp: new Date().toISOString(),
+      }
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c
+          return {
+            ...c,
+            messages: [...(c.messages || []), errorMsg],
+          }
+        }),
+      )
+    }
   }
 
   function editMessage(convId, messageId, newContent) {

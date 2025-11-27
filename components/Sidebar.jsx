@@ -55,43 +55,71 @@ export default function Sidebar({
   const [editingTemplate, setEditingTemplate] = useState(null)
   const [showSearchModal, setShowSearchModal] = useState(false)
 
-  const getConversationsByFolder = (folderName) => {
-    return conversations.filter((conv) => conv.folder === folderName)
+  const getConversationsByFolder = (folderId) => {
+    return conversations.filter((conv) => conv.folderId === folderId)
   }
 
   const handleCreateFolder = (folderName) => {
     createFolder(folderName)
   }
 
-  const handleDeleteFolder = (folderName) => {
-    const updatedConversations = conversations.map((conv) =>
-      conv.folder === folderName ? { ...conv, folder: null } : conv,
-    )
-    console.log("Delete folder:", folderName, "Updated conversations:", updatedConversations)
-  }
-
-  const handleRenameFolder = (oldName, newName) => {
-    const updatedConversations = conversations.map((conv) =>
-      conv.folder === oldName ? { ...conv, folder: newName } : conv,
-    )
-    console.log("Rename folder:", oldName, "to", newName, "Updated conversations:", updatedConversations)
-  }
-
-  const handleCreateTemplate = (templateData) => {
-    if (editingTemplate) {
-      const updatedTemplates = templates.map((t) =>
-        t.id === editingTemplate.id ? { ...templateData, id: editingTemplate.id } : t,
-      )
-      setTemplates(updatedTemplates)
-      setEditingTemplate(null)
-    } else {
-      const newTemplate = {
-        ...templateData,
-        id: Date.now().toString(),
+  const handleDeleteFolder = async (folderId) => {
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: "DELETE",
+      })
+      if (response.ok) {
+        // The parent component should refresh folders
+        window.location.reload() // Simple refresh for now
       }
-      setTemplates([...templates, newTemplate])
+    } catch (error) {
+      console.error("Error deleting folder:", error)
     }
-    setShowCreateTemplateModal(false)
+  }
+
+  const handleRenameFolder = async (folderId, newName) => {
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (response.ok) {
+        window.location.reload() // Simple refresh for now
+      }
+    } catch (error) {
+      console.error("Error renaming folder:", error)
+    }
+  }
+
+  const handleCreateTemplate = async (templateData) => {
+    try {
+      if (editingTemplate) {
+        const response = await fetch(`/api/templates/${editingTemplate.id}`, {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(templateData),
+        })
+        if (response.ok) {
+          const updated = await response.json()
+          setTemplates(templates.map((t) => (t.id === editingTemplate.id ? updated : t)))
+        }
+        setEditingTemplate(null)
+      } else {
+        const response = await fetch("/api/templates", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(templateData),
+        })
+        if (response.ok) {
+          const newTemplate = await response.json()
+          setTemplates([...templates, newTemplate])
+        }
+      }
+      setShowCreateTemplateModal(false)
+    } catch (error) {
+      console.error("Error saving template:", error)
+    }
   }
 
   const handleEditTemplate = (template) => {
@@ -99,16 +127,33 @@ export default function Sidebar({
     setShowCreateTemplateModal(true)
   }
 
-  const handleRenameTemplate = (templateId, newName) => {
-    const updatedTemplates = templates.map((t) =>
-      t.id === templateId ? { ...t, name: newName, updatedAt: new Date().toISOString() } : t,
-    )
-    setTemplates(updatedTemplates)
+  const handleRenameTemplate = async (templateId, newName) => {
+    try {
+      const response = await fetch(`/api/templates/${templateId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (response.ok) {
+        const updated = await response.json()
+        setTemplates(templates.map((t) => (t.id === templateId ? updated : t)))
+      }
+    } catch (error) {
+      console.error("Error renaming template:", error)
+    }
   }
 
-  const handleDeleteTemplate = (templateId) => {
-    const updatedTemplates = templates.filter((t) => t.id !== templateId)
-    setTemplates(updatedTemplates)
+  const handleDeleteTemplate = async (templateId) => {
+    try {
+      const response = await fetch(`/api/templates/${templateId}`, {
+        method: "DELETE",
+      })
+      if (response.ok) {
+        setTemplates(templates.filter((t) => t.id !== templateId))
+      }
+    } catch (error) {
+      console.error("Error deleting template:", error)
+    }
   }
 
   const handleUseTemplate = (template) => {
@@ -323,14 +368,15 @@ export default function Sidebar({
                   {folders.map((f) => (
                     <FolderRow
                       key={f.id}
+                      folderId={f.id}
                       name={f.name}
-                      count={folderCounts[f.name] || 0}
-                      conversations={getConversationsByFolder(f.name)}
+                      count={folderCounts[f.id] || 0}
+                      conversations={getConversationsByFolder(f.id)}
                       selectedId={selectedId}
                       onSelect={onSelect}
                       togglePin={togglePin}
-                      onDeleteFolder={handleDeleteFolder}
-                      onRenameFolder={handleRenameFolder}
+                      onDeleteFolder={() => handleDeleteFolder(f.id)}
+                      onRenameFolder={(newName) => handleRenameFolder(f.id, newName)}
                     />
                   ))}
                 </div>
