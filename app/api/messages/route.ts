@@ -11,7 +11,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "Unauthorized" }, { status: 401 })
     }
 
-    const { conversationId, role, content } = await req.json()
+    const { conversationId, role, content, attachments, metadata, modelId, comparisonGroupId } = await req.json()
 
     if (!conversationId || !role || !content) {
       return NextResponse.json(
@@ -38,7 +38,21 @@ export async function POST(req: NextRequest) {
         conversationId,
         role,
         content,
+        metadata: metadata || undefined,
+        modelId: modelId || undefined,
+        comparisonGroupId: comparisonGroupId || undefined,
+        attachments: attachments?.length
+          ? {
+              create: attachments.map((a: { fileName: string; fileType: string; fileSize: number; url: string }) => ({
+                fileName: a.fileName,
+                fileType: a.fileType,
+                fileSize: a.fileSize,
+                url: a.url,
+              })),
+            }
+          : undefined,
       },
+      include: { attachments: true },
     })
 
     // Update conversation metadata

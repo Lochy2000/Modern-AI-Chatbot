@@ -1,7 +1,7 @@
 "use client"
 import { useState } from "react"
 import { signOut } from "next-auth/react"
-import { User, Globe, HelpCircle, Crown, BookOpen, LogOut, ChevronRight } from "lucide-react"
+import { User, LogOut } from "lucide-react"
 import { Popover, PopoverContent, PopoverTrigger } from "./ui/popover"
 
 export default function SettingsPopover({ children, user = null }) {
@@ -23,45 +23,9 @@ export default function SettingsPopover({ children, user = null }) {
               <User className="h-4 w-4" />
               <span className="text-sm font-medium">{user?.name || "Guest"}</span>
             </div>
-            <div className="ml-auto">
-              <div className="text-xs text-zinc-500">Free plan</div>
-            </div>
-            <div className="text-blue-500">
-              <svg className="h-4 w-4" fill="currentColor" viewBox="0 0 20 20">
-                <path
-                  fillRule="evenodd"
-                  d="M16.707 5.293a1 1 0 010 1.414l-8 8a1 1 0 01-1.414 0l-4-4a1 1 0 011.414-1.414L8 12.586l7.293-7.293a1 1 0 011.414 0z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </div>
           </div>
 
           <div className="space-y-1">
-            <div className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-2">Settings</div>
-
-            <button className="flex items-center gap-3 w-full p-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">
-              <Globe className="h-4 w-4" />
-              <span>Language</span>
-              <ChevronRight className="h-4 w-4 ml-auto" />
-            </button>
-
-            <button className="flex items-center gap-3 w-full p-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">
-              <HelpCircle className="h-4 w-4" />
-              <span>Get help</span>
-            </button>
-
-            <button className="flex items-center gap-3 w-full p-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">
-              <Crown className="h-4 w-4" />
-              <span>Upgrade plan</span>
-            </button>
-
-            <button className="flex items-center gap-3 w-full p-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg">
-              <BookOpen className="h-4 w-4" />
-              <span>Learn more</span>
-              <ChevronRight className="h-4 w-4 ml-auto" />
-            </button>
-
             <button
               onClick={handleLogout}
               className="flex items-center gap-3 w-full p-2 text-sm text-left hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-lg text-red-600 dark:text-red-400"

@@ -20,6 +20,9 @@ export async function GET() {
           orderBy: {
             timestamp: "asc",
           },
+          include: {
+            attachments: true,
+          },
         },
         folder: true,
       },

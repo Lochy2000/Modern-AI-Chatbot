@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { Geist, Geist_Mono } from 'next/font/google'
 import { Analytics } from '@vercel/analytics/next'
+import { Toaster } from 'sonner'
 import SessionProvider from '@/components/providers/SessionProvider'
 import './globals.css'
 
@@ -24,6 +25,7 @@ export default function RootLayout({
         <SessionProvider>
           {children}
         </SessionProvider>
+        <Toaster richColors position="top-right" />
         <Analytics />
       </body>
     </html>

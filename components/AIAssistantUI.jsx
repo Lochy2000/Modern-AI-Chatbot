@@ -2,7 +2,8 @@
 
 import React, { useEffect, useMemo, useRef, useState } from "react"
 import { useSession } from "next-auth/react"
-import { Calendar, LayoutGrid, MoreHorizontal } from "lucide-react"
+import { Calendar, LayoutGrid, MoreHorizontal, Loader2 } from "lucide-react"
+import { toast } from "sonner"
 import Sidebar from "./Sidebar"
 import Header from "./Header"
 import ChatPane from "./ChatPane"
@@ -113,6 +114,13 @@ export default function AIAssistantUI() {
   // Model selection state (lifted from Header)
   const [selectedModel, setSelectedModel] = useState("GPT-5")
 
+  // Web search state
+  const [webSearchEnabled, setWebSearchEnabled] = useState(false)
+
+  // Compare mode state
+  const [compareMode, setCompareMode] = useState(false)
+  const [selectedModelsForCompare, setSelectedModelsForCompare] = useState(["openai/gpt-4o", "anthropic/claude-sonnet-4-20250514"])
+
   // Map UI model names to OpenRouter model IDs
   const MODEL_MAP = {
     "GPT-5": "openai/gpt-4o",
@@ -175,7 +183,7 @@ export default function AIAssistantUI() {
           setFolders(folds)
         }
       } catch (err) {
-        console.error("Error fetching data:", err)
+        toast.error("Failed to connect to server. Please try again.")
         setError("Failed to connect to server. Please try again.")
       } finally {
         setLoading(false)
@@ -218,7 +226,7 @@ export default function AIAssistantUI() {
         body: JSON.stringify({ pinned: !conv.pinned }),
       })
     } catch (error) {
-      console.error("Error toggling pin:", error)
+      toast.error("Failed to pin conversation")
       // Revert on error
       setConversations((prev) => prev.map((c) => (c.id === id ? { ...c, pinned: conv.pinned } : c)))
     }
@@ -239,7 +247,7 @@ export default function AIAssistantUI() {
         setSidebarOpen(false)
       }
     } catch (error) {
-      console.error("Error creating new chat:", error)
+      toast.error("Failed to create new chat")
     }
   }
 
@@ -260,7 +268,42 @@ export default function AIAssistantUI() {
         setFolders((prev) => [...prev, newFolder])
       }
     } catch (error) {
-      console.error("Error creating folder:", error)
+      toast.error("Failed to create folder")
+    }
+  }
+
+  async function deleteFolder(folderId) {
+    // Optimistic update
+    const prevFolders = folders
+    const prevConversations = conversations
+    setFolders((prev) => prev.filter((f) => f.id !== folderId))
+    setConversations((prev) => prev.map((c) => (c.folderId === folderId ? { ...c, folderId: null } : c)))
+
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, { method: "DELETE" })
+      if (!response.ok) throw new Error("Failed to delete folder")
+    } catch (error) {
+      toast.error("Failed to delete folder")
+      setFolders(prevFolders)
+      setConversations(prevConversations)
+    }
+  }
+
+  async function renameFolder(folderId, newName) {
+    // Optimistic update
+    const prevFolders = folders
+    setFolders((prev) => prev.map((f) => (f.id === folderId ? { ...f, name: newName } : f)))
+
+    try {
+      const response = await fetch(`/api/folders/${folderId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: newName }),
+      })
+      if (!response.ok) throw new Error("Failed to rename folder")
+    } catch (error) {
+      toast.error("Failed to rename folder")
+      setFolders(prevFolders)
     }
   }
 
@@ -281,7 +324,7 @@ export default function AIAssistantUI() {
         throw new Error("Failed to move conversation")
       }
     } catch (error) {
-      console.error("Error moving conversation:", error)
+      toast.error("Failed to move conversation")
       // Revert on error - refetch to get actual state
       const res = await fetch("/api/conversations")
       if (res.ok) {
@@ -291,12 +334,28 @@ export default function AIAssistantUI() {
     }
   }
 
-  async function sendMessage(convId, content) {
-    if (!content.trim()) return
+  async function uploadFiles(files) {
+    const uploaded = []
+    for (const file of files) {
+      const formData = new FormData()
+      formData.append("file", file)
+      const res = await fetch("/api/upload", { method: "POST", body: formData })
+      if (res.ok) {
+        uploaded.push(await res.json())
+      } else {
+        const err = await res.json().catch(() => ({}))
+        toast.error(err.error || `Failed to upload ${file.name}`)
+      }
+    }
+    return uploaded
+  }
+
+  async function sendMessage(convId, content, files = []) {
+    if (!content.trim() && files.length === 0) return
 
     const now = new Date().toISOString()
     const userMsgId = Math.random().toString(36).slice(2)
-    const userMsg = { id: userMsgId, role: "user", content, timestamp: now }
+    const userMsg = { id: userMsgId, role: "user", content, timestamp: now, attachments: [] }
 
     // Get conversation messages BEFORE optimistic update for AI context
     const conv = conversations.find((c) => c.id === convId)
@@ -321,7 +380,25 @@ export default function AIAssistantUI() {
     setThinkingConvId(convId)
 
     try {
-      // Save user message to database
+      // Upload files if any
+      let uploadedAttachments = []
+      if (files.length > 0) {
+        uploadedAttachments = await uploadFiles(files)
+        // Update optimistic message with attachment previews
+        setConversations((prev) =>
+          prev.map((c) => {
+            if (c.id !== convId) return c
+            return {
+              ...c,
+              messages: c.messages.map((m) =>
+                m.id === userMsgId ? { ...m, attachments: uploadedAttachments } : m
+              ),
+            }
+          }),
+        )
+      }
+
+      // Save user message to database (with attachments)
       await fetch("/api/messages", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -329,14 +406,64 @@ export default function AIAssistantUI() {
           conversationId: convId,
           role: "user",
           content,
+          attachments: uploadedAttachments.length > 0 ? uploadedAttachments : undefined,
         }),
       })
 
-      // Build messages for AI context (using messages from BEFORE optimistic update + new user message)
-      const allMessages = [...previousMessages, userMsg].map((m) => ({
-        role: m.role,
-        content: m.content,
-      }))
+      // Web search enrichment
+      let searchResults = null
+      let enrichedContent = content
+      if (webSearchEnabled && content.trim()) {
+        try {
+          const searchRes = await fetch("/api/search", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ query: content }),
+          })
+          if (searchRes.ok) {
+            const searchData = await searchRes.json()
+            searchResults = searchData.results
+            // Build enriched prompt with search context
+            const sourcesText = searchData.results
+              .map((r, i) => `[${i + 1}] ${r.title}\nURL: ${r.url}\n${r.content}`)
+              .join("\n\n")
+            enrichedContent = `[Web Search Results for "${content}"]\n${sourcesText}\n\nBased on these search results, answer the following question:\n${content}`
+          }
+        } catch {
+          toast.error("Web search failed, sending without search results")
+        }
+        setWebSearchEnabled(false)
+      }
+
+      // Handle compare mode
+      if (compareMode) {
+        await sendCompareMessage(convId, previousMessages, userMsg, enrichedContent, searchResults)
+        return
+      }
+
+      // Build messages for AI context
+      const allMessages = [...previousMessages, { ...userMsg, content: enrichedContent }].map((m) => {
+        // Support multimodal messages (images)
+        const imageAttachments = (m.id === userMsgId ? uploadedAttachments : m.attachments || [])
+          .filter((a) => a.fileType?.startsWith("image/"))
+
+        if (imageAttachments.length > 0) {
+          return {
+            role: m.role,
+            content: [
+              { type: "text", text: m.id === userMsgId ? enrichedContent : m.content },
+              ...imageAttachments.map((a) => ({
+                type: "image_url",
+                image_url: { url: a.url },
+              })),
+            ],
+          }
+        }
+        return {
+          role: m.role,
+          content: m.id === userMsgId ? enrichedContent : m.content,
+        }
+      })
 
       // Call AI API with streaming
       const response = await fetch("/api/chat", {
@@ -354,7 +481,7 @@ export default function AIAssistantUI() {
       let assistantContent = ""
       const assistantMsgId = Math.random().toString(36).slice(2)
 
-      // Initialize assistant message with model info
+      // Initialize assistant message with model info and search results
       setConversations((prev) =>
         prev.map((c) => {
           if (c.id !== convId) return c
@@ -364,6 +491,7 @@ export default function AIAssistantUI() {
             content: "",
             timestamp: new Date().toISOString(),
             model: selectedModel,
+            metadata: searchResults ? { searchResults } : undefined,
           }
           return {
             ...c,
@@ -393,7 +521,6 @@ export default function AIAssistantUI() {
               const delta = parsed.choices?.[0]?.delta?.content
               if (delta) {
                 assistantContent += delta
-                // Update UI with streaming content
                 setConversations((prev) =>
                   prev.map((c) => {
                     if (c.id !== convId) return c
@@ -422,32 +549,30 @@ export default function AIAssistantUI() {
           conversationId: convId,
           role: "assistant",
           content: assistantContent,
+          metadata: searchResults ? { searchResults } : undefined,
         }),
       })
 
-      // Auto-generate title if this is the first exchange (title is still "New Chat")
+      // Auto-generate title if this is the first exchange
       const currentConv = conversations.find((c) => c.id === convId)
       if (currentConv?.title === "New Chat" && content) {
         const newTitle = generateTitleFromMessage(content)
         if (newTitle !== "New Chat") {
-          // Update title in state
           setConversations((prev) =>
             prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
           )
-          // Update title in database
           fetch(`/api/conversations/${convId}`, {
             method: "PATCH",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ title: newTitle }),
-          }).catch((err) => console.error("Error updating title:", err))
+          }).catch(() => toast.error("Failed to update conversation title"))
         }
       }
     } catch (error) {
-      console.error("Error sending message:", error)
+      toast.error("Failed to get AI response. Please try again.")
       setIsThinking(false)
       setThinkingConvId(null)
 
-      // Add error message
       const errorMsg = {
         id: Math.random().toString(36).slice(2),
         role: "assistant",
@@ -463,6 +588,88 @@ export default function AIAssistantUI() {
           }
         }),
       )
+    }
+  }
+
+  async function sendCompareMessage(convId, previousMessages, userMsg, enrichedContent, searchResults) {
+    try {
+      const allMessages = [...previousMessages, { ...userMsg, content: enrichedContent }].map((m) => ({
+        role: m.role,
+        content: m.id === userMsg.id ? enrichedContent : m.content,
+      }))
+
+      const response = await fetch("/api/chat/compare", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: allMessages, models: selectedModelsForCompare }),
+      })
+
+      if (!response.ok) throw new Error("Comparison failed")
+
+      const results = await response.json()
+      const comparisonGroupId = Math.random().toString(36).slice(2)
+
+      setIsThinking(false)
+      setThinkingConvId(null)
+
+      // Add all comparison responses to UI
+      const comparisonMsgs = results.map((r) => ({
+        id: Math.random().toString(36).slice(2),
+        role: "assistant",
+        content: r.content,
+        model: r.model,
+        modelId: r.model,
+        comparisonGroupId,
+        metadata: searchResults ? { searchResults } : undefined,
+        timestamp: new Date().toISOString(),
+      }))
+
+      setConversations((prev) =>
+        prev.map((c) => {
+          if (c.id !== convId) return c
+          return {
+            ...c,
+            messages: [...(c.messages || []), ...comparisonMsgs],
+            preview: results[0]?.content?.slice(0, 80) || c.preview,
+          }
+        }),
+      )
+
+      // Save comparison messages to database
+      for (const msg of comparisonMsgs) {
+        await fetch("/api/messages", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            conversationId: convId,
+            role: "assistant",
+            content: msg.content,
+            modelId: msg.modelId,
+            comparisonGroupId,
+            metadata: searchResults ? { searchResults } : undefined,
+          }),
+        })
+      }
+
+      // Auto-generate title
+      const currentConv = conversations.find((c) => c.id === convId)
+      if (currentConv?.title === "New Chat" && userMsg.content) {
+        const newTitle = generateTitleFromMessage(userMsg.content)
+        if (newTitle !== "New Chat") {
+          setConversations((prev) =>
+            prev.map((c) => (c.id === convId ? { ...c, title: newTitle } : c))
+          )
+          fetch(`/api/conversations/${convId}`, {
+            method: "PATCH",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ title: newTitle }),
+          }).catch(() => {})
+        }
+      }
+    } catch (error) {
+      toast.error("Model comparison failed. Please try again.")
+      setIsThinking(false)
+      setThinkingConvId(null)
     }
   }
 
@@ -506,6 +713,33 @@ export default function AIAssistantUI() {
   const composerRef = useRef(null)
 
   const selected = conversations.find((c) => c.id === selectedId) || null
+
+  if (loading) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="flex flex-col items-center gap-3">
+          <Loader2 className="h-8 w-8 animate-spin text-zinc-400" />
+          <span className="text-sm text-zinc-500">Loading your conversations...</span>
+        </div>
+      </div>
+    )
+  }
+
+  if (error && conversations.length === 0) {
+    return (
+      <div className="h-screen w-full flex items-center justify-center bg-zinc-50 dark:bg-zinc-950">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <span className="text-sm text-zinc-500">{error}</span>
+          <button
+            onClick={() => window.location.reload()}
+            className="mt-2 rounded-full bg-zinc-900 px-4 py-2 text-sm font-medium text-white hover:bg-zinc-800 dark:bg-white dark:text-zinc-900"
+          >
+            Retry
+          </button>
+        </div>
+      </div>
+    )
+  }
 
   return (
     <div className="h-screen w-full bg-zinc-50 text-zinc-900 dark:bg-zinc-950 dark:text-zinc-100">
@@ -555,18 +789,34 @@ export default function AIAssistantUI() {
           onUseTemplate={handleUseTemplate}
           user={session?.user}
           onMoveToFolder={moveToFolder}
+          onDeleteFolder={deleteFolder}
+          onRenameFolder={renameFolder}
         />
 
         <main className="relative flex min-w-0 flex-1 flex-col">
-          <Header createNewChat={createNewChat} sidebarCollapsed={sidebarCollapsed} setSidebarOpen={setSidebarOpen} selectedModel={selectedModel} setSelectedModel={setSelectedModel} />
+          <Header
+            createNewChat={createNewChat}
+            sidebarCollapsed={sidebarCollapsed}
+            setSidebarOpen={setSidebarOpen}
+            selectedModel={selectedModel}
+            setSelectedModel={setSelectedModel}
+            compareMode={compareMode}
+            setCompareMode={setCompareMode}
+            selectedModelsForCompare={selectedModelsForCompare}
+            setSelectedModelsForCompare={setSelectedModelsForCompare}
+            MODEL_MAP={MODEL_MAP}
+          />
           <ChatPane
             ref={composerRef}
             conversation={selected}
-            onSend={(content) => selected && sendMessage(selected.id, content)}
+            onSend={(content, files) => selected && sendMessage(selected.id, content, files)}
             onEditMessage={(messageId, newContent) => selected && editMessage(selected.id, messageId, newContent)}
             onResendMessage={(messageId) => selected && resendMessage(selected.id, messageId)}
             isThinking={isThinking && thinkingConvId === selected?.id}
             onPauseThinking={pauseThinking}
+            user={session?.user}
+            webSearchEnabled={webSearchEnabled}
+            setWebSearchEnabled={setWebSearchEnabled}
           />
         </main>
       </div>

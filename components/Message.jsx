@@ -1,6 +1,13 @@
 import { cls } from "./utils"
 
-export default function Message({ role, children }) {
+function getUserInitials(name) {
+  if (!name) return "?"
+  const parts = name.trim().split(" ")
+  if (parts.length === 1) return parts[0].charAt(0).toUpperCase()
+  return (parts[0].charAt(0) + parts[parts.length - 1].charAt(0)).toUpperCase()
+}
+
+export default function Message({ role, children, user }) {
   const isUser = role === "user"
   return (
     <div className={cls("flex gap-3", isUser ? "justify-end" : "justify-start")}>
@@ -20,9 +27,17 @@ export default function Message({ role, children }) {
         {children}
       </div>
       {isUser && (
-        <div className="mt-0.5 grid h-7 w-7 place-items-center rounded-full bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">
-          JD
-        </div>
+        user?.image ? (
+          <img
+            src={user.image}
+            alt={user.name || "User"}
+            className="mt-0.5 h-7 w-7 rounded-full object-cover"
+          />
+        ) : (
+          <div className="mt-0.5 grid h-7 w-7 place-items-center rounded-full bg-zinc-900 text-[10px] font-bold text-white dark:bg-white dark:text-zinc-900">
+            {getUserInitials(user?.name)}
+          </div>
+        )
       )}
     </div>
   )

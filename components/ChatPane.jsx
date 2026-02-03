@@ -1,8 +1,11 @@
 "use client"
 
-import { useState, forwardRef, useImperativeHandle, useRef } from "react"
+import { useState, useMemo, forwardRef, useImperativeHandle, useRef } from "react"
 import { Pencil, RefreshCw, Check, X, Square } from "lucide-react"
 import Message from "./Message"
+import MessageAttachments from "./MessageAttachments"
+import SearchCitations from "./SearchCitations"
+import ComparisonView from "./ComparisonView"
 import Composer from "./Composer"
 import { cls, timeAgo } from "./utils"
 
@@ -28,7 +31,7 @@ function ThinkingMessage({ onPause }) {
 }
 
 const ChatPane = forwardRef(function ChatPane(
-  { conversation, onSend, onEditMessage, onResendMessage, isThinking, onPauseThinking },
+  { conversation, onSend, onEditMessage, onResendMessage, isThinking, onPauseThinking, user, webSearchEnabled, setWebSearchEnabled },
   ref,
 ) {
   const [editingId, setEditingId] = useState(null)
@@ -48,9 +51,30 @@ const ChatPane = forwardRef(function ChatPane(
 
   if (!conversation) return null
 
-  const tags = ["Certified", "Personalized", "Experienced", "Helpful"]
   const messages = Array.isArray(conversation.messages) ? conversation.messages : []
   const count = messages.length || conversation.messageCount || 0
+
+  // Group messages: consecutive assistant messages with same comparisonGroupId become a comparison group
+  const groupedMessages = useMemo(() => {
+    const groups = []
+    let i = 0
+    while (i < messages.length) {
+      const msg = messages[i]
+      if (msg.comparisonGroupId) {
+        const group = []
+        const groupId = msg.comparisonGroupId
+        while (i < messages.length && messages[i].comparisonGroupId === groupId) {
+          group.push(messages[i])
+          i++
+        }
+        groups.push({ type: "comparison", messages: group, id: groupId })
+      } else {
+        groups.push({ type: "single", message: msg, id: msg.id })
+        i++
+      }
+    }
+    return groups
+  }, [messages])
 
   function startEdit(m) {
     setEditingId(m.id)
@@ -82,79 +106,83 @@ const ChatPane = forwardRef(function ChatPane(
           Updated {timeAgo(conversation.updatedAt)} · {count} messages
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-2 border-b border-zinc-200 pb-5 dark:border-zinc-800">
-          {tags.map((t) => (
-            <span
-              key={t}
-              className="inline-flex items-center rounded-full border border-zinc-200 px-3 py-1 text-xs text-zinc-700 dark:border-zinc-800 dark:text-zinc-200"
-            >
-              {t}
-            </span>
-          ))}
-        </div>
-
         {messages.length === 0 ? (
           <div className="rounded-xl border border-dashed border-zinc-300 p-6 text-sm text-zinc-500 dark:border-zinc-700 dark:text-zinc-400">
             No messages yet. Say hello to start.
           </div>
         ) : (
           <>
-            {messages.map((m) => (
-              <div key={m.id} className="space-y-2">
-                {editingId === m.id ? (
-                  <div className={cls("rounded-2xl border p-2", "border-zinc-200 dark:border-zinc-800")}>
-                    <textarea
-                      value={draft}
-                      onChange={(e) => setDraft(e.target.value)}
-                      className="w-full resize-y rounded-xl bg-transparent p-2 text-sm outline-none"
-                      rows={3}
-                    />
-                    <div className="mt-2 flex items-center gap-2">
-                      <button
-                        onClick={saveEdit}
-                        className="inline-flex items-center gap-1 rounded-full bg-zinc-900 px-3 py-1.5 text-xs text-white dark:bg-white dark:text-zinc-900"
-                      >
-                        <Check className="h-3.5 w-3.5" /> Save
-                      </button>
-                      <button
-                        onClick={saveAndResend}
-                        className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs"
-                      >
-                        <RefreshCw className="h-3.5 w-3.5" /> Save & Resend
-                      </button>
-                      <button
-                        onClick={cancelEdit}
-                        className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs"
-                      >
-                        <X className="h-3.5 w-3.5" /> Cancel
-                      </button>
-                    </div>
+            {groupedMessages.map((group) => {
+              if (group.type === "comparison") {
+                return (
+                  <div key={group.id} className="space-y-2">
+                    <ComparisonView responses={group.messages} />
                   </div>
-                ) : (
-                  <Message role={m.role}>
-                    {m.role === "assistant" && m.model && (
-                      <div className="mb-1 -mt-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
-                        {m.model}
-                      </div>
-                    )}
-                    <div className="whitespace-pre-wrap">{m.content}</div>
-                    {m.role === "user" && (
-                      <div className="mt-1 flex gap-2 text-[11px] text-zinc-500">
-                        <button className="inline-flex items-center gap-1 hover:underline" onClick={() => startEdit(m)}>
-                          <Pencil className="h-3.5 w-3.5" /> Edit
+                )
+              }
+
+              const m = group.message
+              return (
+                <div key={m.id} className="space-y-2">
+                  {editingId === m.id ? (
+                    <div className={cls("rounded-2xl border p-2", "border-zinc-200 dark:border-zinc-800")}>
+                      <textarea
+                        value={draft}
+                        onChange={(e) => setDraft(e.target.value)}
+                        className="w-full resize-y rounded-xl bg-transparent p-2 text-sm outline-none"
+                        rows={3}
+                      />
+                      <div className="mt-2 flex items-center gap-2">
+                        <button
+                          onClick={saveEdit}
+                          className="inline-flex items-center gap-1 rounded-full bg-zinc-900 px-3 py-1.5 text-xs text-white dark:bg-white dark:text-zinc-900"
+                        >
+                          <Check className="h-3.5 w-3.5" /> Save
                         </button>
                         <button
-                          className="inline-flex items-center gap-1 hover:underline"
-                          onClick={() => onResendMessage?.(m.id)}
+                          onClick={saveAndResend}
+                          className="inline-flex items-center gap-1 rounded-full border px-3 py-1.5 text-xs"
                         >
-                          <RefreshCw className="h-3.5 w-3.5" /> Resend
+                          <RefreshCw className="h-3.5 w-3.5" /> Save & Resend
+                        </button>
+                        <button
+                          onClick={cancelEdit}
+                          className="inline-flex items-center gap-1 rounded-full px-3 py-1.5 text-xs"
+                        >
+                          <X className="h-3.5 w-3.5" /> Cancel
                         </button>
                       </div>
-                    )}
-                  </Message>
-                )}
-              </div>
-            ))}
+                    </div>
+                  ) : (
+                    <Message role={m.role} user={user}>
+                      {m.role === "assistant" && m.model && (
+                        <div className="mb-1 -mt-1 text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+                          {m.model}
+                        </div>
+                      )}
+                      <div className="whitespace-pre-wrap">{m.content}</div>
+                      <MessageAttachments attachments={m.attachments} />
+                      {m.role === "assistant" && m.metadata?.searchResults && (
+                        <SearchCitations results={m.metadata.searchResults} />
+                      )}
+                      {m.role === "user" && (
+                        <div className="mt-1 flex gap-2 text-[11px] text-zinc-500">
+                          <button className="inline-flex items-center gap-1 hover:underline" onClick={() => startEdit(m)}>
+                            <Pencil className="h-3.5 w-3.5" /> Edit
+                          </button>
+                          <button
+                            className="inline-flex items-center gap-1 hover:underline"
+                            onClick={() => onResendMessage?.(m.id)}
+                          >
+                            <RefreshCw className="h-3.5 w-3.5" /> Resend
+                          </button>
+                        </div>
+                      )}
+                    </Message>
+                  )}
+                </div>
+              )
+            })}
             {isThinking && <ThinkingMessage onPause={onPauseThinking} />}
           </>
         )}
@@ -162,13 +190,15 @@ const ChatPane = forwardRef(function ChatPane(
 
       <Composer
         ref={composerRef}
-        onSend={async (text) => {
-          if (!text.trim()) return
+        onSend={async (text, files) => {
+          if (!text.trim() && (!files || files.length === 0)) return
           setBusy(true)
-          await onSend?.(text)
+          await onSend?.(text, files)
           setBusy(false)
         }}
         busy={busy}
+        webSearchEnabled={webSearchEnabled}
+        setWebSearchEnabled={setWebSearchEnabled}
       />
     </div>
   )

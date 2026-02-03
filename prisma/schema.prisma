@@ -90,15 +90,35 @@ model Conversation {
 
 // Message model
 model Message {
-  id             String       @id @default(cuid())
-  conversationId String
-  role           String       // "user" or "assistant"
-  content        String       @db.Text
-  timestamp      DateTime     @default(now())
+  id                String       @id @default(cuid())
+  conversationId    String
+  role              String       // "user" or "assistant"
+  content           String       @db.Text
+  metadata          Json?        // Stores search results, model info, etc.
+  modelId           String?      // Which AI model generated this response
+  comparisonGroupId String?      // Groups multiple assistant responses to the same prompt
+  timestamp         DateTime     @default(now())
 
   conversation Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  attachments  Attachment[]
 
   @@index([conversationId])
+  @@index([comparisonGroupId])
+}
+
+// Attachment model for file uploads
+model Attachment {
+  id        String   @id @default(cuid())
+  messageId String
+  fileName  String
+  fileType  String   // MIME type
+  fileSize  Int      // bytes
+  url       String   @db.Text
+  createdAt DateTime @default(now())
+
+  message Message @relation(fields: [messageId], references: [id], onDelete: Cascade)
+
+  @@index([messageId])
 }
 
 // Folder model

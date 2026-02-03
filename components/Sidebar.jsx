@@ -23,6 +23,7 @@ import SearchModal from "./SearchModal"
 import SettingsPopover from "./SettingsPopover"
 import { cls } from "./utils"
 import { useState } from "react"
+import { toast } from "sonner"
 
 export default function Sidebar({
   open,
@@ -51,6 +52,8 @@ export default function Sidebar({
   setSidebarCollapsed = () => {},
   user = null,
   onMoveToFolder = () => {},
+  onDeleteFolder = null,
+  onRenameFolder = null,
 }) {
   // Generate user initials from name
   const getUserInitials = (name) => {
@@ -73,31 +76,14 @@ export default function Sidebar({
   }
 
   const handleDeleteFolder = async (folderId) => {
-    try {
-      const response = await fetch(`/api/folders/${folderId}`, {
-        method: "DELETE",
-      })
-      if (response.ok) {
-        // The parent component should refresh folders
-        window.location.reload() // Simple refresh for now
-      }
-    } catch (error) {
-      console.error("Error deleting folder:", error)
+    if (onDeleteFolder) {
+      onDeleteFolder(folderId)
     }
   }
 
   const handleRenameFolder = async (folderId, newName) => {
-    try {
-      const response = await fetch(`/api/folders/${folderId}`, {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name: newName }),
-      })
-      if (response.ok) {
-        window.location.reload() // Simple refresh for now
-      }
-    } catch (error) {
-      console.error("Error renaming folder:", error)
+    if (onRenameFolder) {
+      onRenameFolder(folderId, newName)
     }
   }
 
@@ -127,7 +113,7 @@ export default function Sidebar({
       }
       setShowCreateTemplateModal(false)
     } catch (error) {
-      console.error("Error saving template:", error)
+      toast.error("Failed to save template")
     }
   }
 
@@ -148,7 +134,7 @@ export default function Sidebar({
         setTemplates(templates.map((t) => (t.id === templateId ? updated : t)))
       }
     } catch (error) {
-      console.error("Error renaming template:", error)
+      toast.error("Failed to rename template")
     }
   }
 
@@ -161,7 +147,7 @@ export default function Sidebar({
         setTemplates(templates.filter((t) => t.id !== templateId))
       }
     } catch (error) {
-      console.error("Error deleting template:", error)
+      toast.error("Failed to delete template")
     }
   }
 

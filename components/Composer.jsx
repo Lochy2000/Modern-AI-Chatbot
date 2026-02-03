@@ -1,37 +1,40 @@
 "use client"
 
 import { useRef, useState, forwardRef, useImperativeHandle, useEffect } from "react"
-import { Send, Loader2, Plus, Mic } from "lucide-react"
+import { Send, Loader2, Plus, Globe, X } from "lucide-react"
 import ComposerActionsPopover from "./ComposerActionsPopover"
+import FilePreviewStrip from "./FilePreviewStrip"
 import { cls } from "./utils"
 
-const Composer = forwardRef(function Composer({ onSend, busy }, ref) {
+const Composer = forwardRef(function Composer(
+  { onSend, busy, webSearchEnabled, setWebSearchEnabled },
+  ref,
+) {
   const [value, setValue] = useState("")
   const [sending, setSending] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
   const [lineCount, setLineCount] = useState(1)
+  const [pendingFiles, setPendingFiles] = useState([])
   const inputRef = useRef(null)
+  const fileInputRef = useRef(null)
 
   useEffect(() => {
     if (inputRef.current) {
       const textarea = inputRef.current
-      const lineHeight = 20 // Approximate line height in pixels
+      const lineHeight = 20
       const minHeight = 40
 
-      // Reset height to calculate scroll height
       textarea.style.height = "auto"
       const scrollHeight = textarea.scrollHeight
-      const calculatedLines = Math.max(1, Math.floor((scrollHeight - 16) / lineHeight)) // 16px for padding
+      const calculatedLines = Math.max(1, Math.floor((scrollHeight - 16) / lineHeight))
 
       setLineCount(calculatedLines)
 
       if (calculatedLines <= 12) {
-        // Auto-expand for 1-12 lines
         textarea.style.height = `${Math.max(minHeight, scrollHeight)}px`
         textarea.style.overflowY = "hidden"
       } else {
-        // Fixed height with scroll for 12+ lines
-        textarea.style.height = `${minHeight + 11 * lineHeight}px` // 12 lines total
+        textarea.style.height = `${minHeight + 11 * lineHeight}px`
         textarea.style.overflowY = "auto"
       }
     }
@@ -58,19 +61,46 @@ const Composer = forwardRef(function Composer({ onSend, busy }, ref) {
     [],
   )
 
+  function handleFileSelect(e) {
+    const files = Array.from(e.target.files || [])
+    const newPending = files.map((file) => ({
+      file,
+      previewUrl: file.type.startsWith("image/") ? URL.createObjectURL(file) : null,
+      uploading: false,
+      uploaded: false,
+      url: null,
+    }))
+    setPendingFiles((prev) => [...prev, ...newPending])
+    // Reset input so the same file can be selected again
+    e.target.value = ""
+  }
+
+  function removePendingFile(index) {
+    setPendingFiles((prev) => {
+      const removed = prev[index]
+      if (removed?.previewUrl) URL.revokeObjectURL(removed.previewUrl)
+      return prev.filter((_, i) => i !== index)
+    })
+  }
+
   async function handleSend() {
-    if (!value.trim() || sending) return
+    if ((!value.trim() && pendingFiles.length === 0) || sending) return
     setSending(true)
     try {
-      await onSend?.(value)
+      await onSend?.(value, pendingFiles.map((f) => f.file))
       setValue("")
+      // Clean up preview URLs
+      pendingFiles.forEach((f) => {
+        if (f.previewUrl) URL.revokeObjectURL(f.previewUrl)
+      })
+      setPendingFiles([])
       inputRef.current?.focus()
     } finally {
       setSending(false)
     }
   }
 
-  const hasContent = value.length > 0
+  const hasContent = value.length > 0 || pendingFiles.length > 0
 
   return (
     <div className="border-t border-zinc-200/60 p-4 dark:border-zinc-800">
@@ -80,6 +110,23 @@ const Composer = forwardRef(function Composer({ onSend, busy }, ref) {
           "max-w-3xl border-zinc-300 dark:border-zinc-700 p-3",
         )}
       >
+        {webSearchEnabled && (
+          <div className="mb-2 flex items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-medium text-blue-700 dark:bg-blue-900/30 dark:text-blue-300">
+              <Globe className="h-3 w-3" />
+              Web search enabled
+              <button
+                onClick={() => setWebSearchEnabled(false)}
+                className="ml-0.5 rounded-full hover:bg-blue-100 dark:hover:bg-blue-800/50 p-0.5"
+              >
+                <X className="h-3 w-3" />
+              </button>
+            </span>
+          </div>
+        )}
+
+        <FilePreviewStrip files={pendingFiles} onRemove={removePendingFile} />
+
         <div className="flex-1 relative">
           <textarea
             ref={inputRef}
@@ -106,8 +153,20 @@ const Composer = forwardRef(function Composer({ onSend, busy }, ref) {
           />
         </div>
 
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          accept="image/*,.pdf,.txt"
+          onChange={handleFileSelect}
+          className="hidden"
+        />
+
         <div className="flex items-center justify-between mt-2">
-          <ComposerActionsPopover>
+          <ComposerActionsPopover
+            onFileUpload={() => fileInputRef.current?.click()}
+            onWebSearch={() => setWebSearchEnabled?.(!webSearchEnabled)}
+          >
             <button
               className="inline-flex shrink-0 items-center justify-center rounded-full p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 transition-colors"
               title="Add attachment"
@@ -118,17 +177,11 @@ const Composer = forwardRef(function Composer({ onSend, busy }, ref) {
 
           <div className="flex items-center gap-1 shrink-0">
             <button
-              className="inline-flex items-center justify-center rounded-full p-2 text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-300 transition-colors"
-              title="Voice input"
-            >
-              <Mic className="h-4 w-4" />
-            </button>
-            <button
               onClick={handleSend}
-              disabled={sending || busy || !value.trim()}
+              disabled={sending || busy || !hasContent}
               className={cls(
                 "inline-flex shrink-0 items-center gap-2 rounded-full bg-zinc-900 px-3 py-2 text-sm font-medium text-white shadow-sm transition hover:bg-zinc-800 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 dark:bg-white dark:text-zinc-900",
-                (sending || busy || !value.trim()) && "opacity-50 cursor-not-allowed",
+                (sending || busy || !hasContent) && "opacity-50 cursor-not-allowed",
               )}
             >
               {sending || busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
