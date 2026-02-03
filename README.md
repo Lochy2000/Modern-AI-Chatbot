@@ -6,13 +6,13 @@ A full-featured AI chatbot built with Next.js 15, React 19, Prisma, NextAuth.js,
 
 ## Features
 
-- 🤖 **Real AI Chat** - Powered by OpenRouter with streaming responses
-- 🔐 **Authentication** - Secure login with Google and GitHub OAuth via NextAuth.js
-- 💾 **Persistent Storage** - All conversations and messages saved to PostgreSQL database
-- 📁 **Organization** - Folders and templates for organizing your conversations
-- 🎨 **Modern UI** - Beautiful, responsive interface with dark mode support
-- ⚡ **Real-time Streaming** - See AI responses appear in real-time
-- 🔍 **Search** - Find conversations quickly with built-in search
+-  **Real AI Chat** - Powered by OpenRouter with streaming responses
+-  **Authentication** - Secure login with Google and GitHub OAuth via NextAuth.js
+-  **Persistent Storage** - All conversations and messages saved to PostgreSQL database
+-  **Organization** - Folders and templates for organizing your conversations
+-  **Modern UI** - Beautiful, responsive interface with dark mode support
+-  **Real-time Streaming** - See AI responses appear in real-time
+-  **Search** - Find conversations quickly with built-in search
 
 ## Tech Stack
 
